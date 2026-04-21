@@ -356,8 +356,8 @@ function compute(){
     sDF, sDR, sL, sW, sNf, sNr, sNfTire, sNrTire,
     zeroMass: isN(vM) && massN === 0,
     zeroG: isN(vG) && Math.abs(gN) < 1e-9,
-    zeroDF: isN(vDF) && Math.abs(df_m) < 1e-9,
-    zeroDR: isN(vDR) && Math.abs(dr_m) < 1e-9,
+    zeroDF: isN(vDF) && Math.abs(df_m) < 1e-9 && !zeroL,
+    zeroDR: isN(vDR) && Math.abs(dr_m) < 1e-9 && !zeroL,
     zeroL,
     negDF: isN(vDF) && df_m < 0,
     negDR: isN(vDR) && dr_m < 0
@@ -370,22 +370,64 @@ function validate(){
   const em=document.getElementById('errMsg');
   document.querySelectorAll('.iw input').forEach(e=>e.classList.remove('err'));
   em.style.display='none';
+
   for(const id of ids){
     const el=document.getElementById(id);
     if(!(el.value||'').trim()){
       el.classList.add('err');
-      em.textContent=`Every field needs a value (number or symbol).`;
-      em.style.display='block';return false;
+      em.textContent='Every field needs a value (number or symbol).';
+      em.style.display='block'; return false;
     }
+  }
+
+  // Block negative geometry — physically invalid
+  const dfV=parseFloat(document.getElementById('inp_df').value);
+  const drV=parseFloat(document.getElementById('inp_dr').value);
+  const mV =parseFloat(document.getElementById('inp_mass').value);
+  const gV =parseFloat(document.getElementById('inp_g').value);
+
+  if(!isNaN(dfV)&&dfV<0){
+    document.getElementById('inp_df').classList.add('err');
+    em.textContent='❌ Front axle distance d_f cannot be negative — enter a value ≥ 0 mm.';
+    em.style.display='block'; return false;
+  }
+  if(!isNaN(drV)&&drV<0){
+    document.getElementById('inp_dr').classList.add('err');
+    em.textContent='❌ Rear axle distance d_r cannot be negative — enter a value ≥ 0 mm.';
+    em.style.display='block'; return false;
+  }
+  if(!isNaN(mV)&&mV<0){
+    document.getElementById('inp_mass').classList.add('err');
+    em.textContent='❌ Mass cannot be negative.';
+    em.style.display='block'; return false;
+  }
+  if(!isNaN(gV)&&gV<0){
+    document.getElementById('inp_g').classList.add('err');
+    em.textContent='❌ Gravity cannot be negative.';
+    em.style.display='block'; return false;
   }
   return true;
 }
 function styleInputs(){
+  const em=document.getElementById('errMsg');
+  let anyErr=false;
   ['inp_df','inp_dr','inp_mass','inp_g'].forEach(id=>{
     const el=document.getElementById(id);
     const raw=(el.value||'').trim();
-    el.classList.toggle('sym',raw!==''&&isNaN(parseFloat(raw)));
+    const n=parseFloat(raw);
+    el.classList.toggle('sym',raw!==''&&isNaN(n));
+    // live negative check
+    const negAllowed=false; // none of these fields allow negatives
+    if(!isNaN(n)&&n<0){
+      el.classList.add('err');
+      const labels={'inp_df':'d_f (front distance)','inp_dr':'d_r (rear distance)','inp_mass':'Mass','inp_g':'Gravity'};
+      if(!anyErr){em.textContent=`❌ ${labels[id]} cannot be negative — invalid input.`;em.style.display='block';}
+      anyErr=true;
+    } else {
+      el.classList.remove('err');
+    }
   });
+  if(!anyErr){em.style.display='none';}
 }
 document.querySelectorAll('.iw input').forEach(el=>el.addEventListener('input',styleInputs));
 
@@ -396,13 +438,11 @@ function showResults(p){
 
   const banner=document.getElementById('caseBanner'); let bh='';
   if(p.symbolic) bh=`<div class="case-banner cb-sym">🔣 <strong>Symbolic mode:</strong> Formulas generated based on symbols. FBD uses fallback proportions.</div>`;
-  else if(p.zeroMass) bh=`<div class="case-banner cb-info">ℹ️ <strong>Zero Mass:</strong> W = 0 → No normal forces required to hold the car up.</div>`;
-  else if(p.zeroG) bh=`<div class="case-banner cb-info">ℹ️ <strong>Zero Gravity (g=0):</strong> The system is weightless. Therefore, no normal forces are required from the tires to support it.</div>`;
-  else if(p.zeroL) bh=`<div class="case-banner cb-info" style="background:var(--green-glow);border-color:rgba(52,211,153,.3);color:var(--green)">ℹ️ <strong>Zero Wheelbase (Point Mass):</strong> d_f = 0 and d_r = 0. The car's weight is balanced exactly at the center point, shared equally by the front and rear.</div>`;
-  else if(p.negDF) bh=`<div class="case-banner cb-warn">⚠️ <strong>Negative Front Distance:</strong> Center of mass is physically <em>in front</em> of the front axle. The car will tip forward unless the rear axle is tied down.</div>`;
-  else if(p.negDR) bh=`<div class="case-banner cb-warn">⚠️ <strong>Negative Rear Distance:</strong> Center of mass is physically <em>behind</em> the rear axle. The car will tip backward (wheelie) unless the front axle is tied down.</div>`;
-  else if(p.zeroDF) bh=`<div class="case-banner cb-warn">⚠️ <strong>Center of Mass over Front Axle:</strong> d_f = 0. All weight is supported by front tires (N_r = 0).</div>`;
-  else if(p.zeroDR) bh=`<div class="case-banner cb-warn">⚠️ <strong>Center of Mass over Rear Axle:</strong> d_r = 0. All weight is supported by rear tires (N_f = 0).</div>`;
+  else if(p.zeroMass) bh=`<div class="case-banner cb-info">ℹ️ <strong>Zero Mass (m = 0):</strong> W = m·g = 0 N. No weight → no normal forces required. N_f = N_r = 0 N. The system is trivially in equilibrium.</div>`;
+  else if(p.zeroG) bh=`<div class="case-banner cb-info">ℹ️ <strong>Zero Gravity (g = 0):</strong> W = m·g = 0 N. Weightless system → no normal forces required. N_f = N_r = 0 N. ΣM = 0 is satisfied trivially.</div>`;
+  else if(p.zeroL) bh=`<div class="case-banner cb-info" style="background:var(--green-glow);border-color:rgba(52,211,153,.3);color:var(--green)">ℹ️ <strong>Point Mass (d_f = d_r = 0):</strong> G is exactly at the midpoint. Weight splits equally — N_f = N_r = W/2. This is the symmetric degenerate case.</div>`;
+  else if(p.zeroDF) bh=`<div class="case-banner cb-warn">⚠️ <strong>G is directly over the Front Axle (d_f = 0):</strong> The full weight is carried by the front axle → N_f = W, N_r = 0 N. Rear tires are unloaded.</div>`;
+  else if(p.zeroDR) bh=`<div class="case-banner cb-warn">⚠️ <strong>G is directly over the Rear Axle (d_r = 0):</strong> The full weight is carried by the rear axle → N_r = W, N_f = 0 N. Front tires are unloaded.</div>`;
   
   banner.innerHTML=bh; banner.style.display=bh?'block':'none';
 
@@ -435,8 +475,14 @@ function buildEq(p){
   let html;
   if(p.symbolic){
     html=`<span style="color:var(--muted)">1) ΣM_Rear = 0 → N_f(L) - W(d_r) = 0</span><br><strong style="color:${nF}">N_f = ${p.sNf}</strong><br><br><span style="color:var(--muted)">2) ΣM_Front = 0 → N_r(L) - W(d_f) = 0</span><br><strong style="color:${nR}">N_r = ${p.sNr}</strong>`;
+  } else if(p.zeroMass || p.zeroG) {
+    html=`<span style="color:var(--muted)">W = m·g = ${fmt(p.massN,1)} × ${fmt(p.gN,2)} = 0 N</span><br>ΣM = 0 trivially (no weight, no moments)<br><strong style="color:${nF}">N_f = 0 N</strong><br><strong style="color:${nR}">N_r = 0 N</strong>`;
   } else if (p.zeroL) {
     html=`<span style="color:var(--muted)">d_f = 0, d_r = 0 (Point Mass)</span><br><span style="color:${nF}">N_f</span> + <span style="color:${nR}">N_r</span> = <span style="color:${wC}">${fmt(p.W_num,1)}</span><br>Weight shared equally.<br><strong style="color:${nF}">N_f = ${fmt(p.Nf_num,2)} N</strong><br><strong style="color:${nR}">N_r = ${fmt(p.Nr_num,2)} N</strong>`;
+  } else if(p.zeroDF) {
+    html=`<span style="color:var(--muted)">d_f = 0 → G is over Front Axle</span><br>ΣM_Rear = 0: <span style="color:${nF}">N_f</span> · ${fmt(p.L_m,3)} = <span style="color:${wC}">${fmt(p.W_num,1)}</span> · ${fmt(p.L_m,3)}<br><strong style="color:${nF}">N_f = ${fmt(p.Nf_num,2)} N (= W)</strong><br><br>ΣM_Front = 0: <span style="color:${nR}">N_r</span> · ${fmt(p.L_m,3)} = <span style="color:${wC}">${fmt(p.W_num,1)}</span> · 0<br><strong style="color:${nR}">N_r = 0 N</strong>`;
+  } else if(p.zeroDR) {
+    html=`<span style="color:var(--muted)">d_r = 0 → G is over Rear Axle</span><br>ΣM_Front = 0: <span style="color:${nR}">N_r</span> · ${fmt(p.L_m,3)} = <span style="color:${wC}">${fmt(p.W_num,1)}</span> · ${fmt(p.L_m,3)}<br><strong style="color:${nR}">N_r = ${fmt(p.Nr_num,2)} N (= W)</strong><br><br>ΣM_Rear = 0: <span style="color:${nF}">N_f</span> · ${fmt(p.L_m,3)} = <span style="color:${wC}">${fmt(p.W_num,1)}</span> · 0<br><strong style="color:${nF}">N_f = 0 N</strong>`;
   } else {
     html=`<span style="color:var(--muted)">ΣM_Rear = 0</span><br><span style="color:${nF}">N_f</span> · ${fmt(p.L_m,3)} = <span style="color:${wC}">${fmt(p.W_num,1)}</span> · ${fmt(p.dr_m,3)}<br><strong style="color:${nF}">N_f = ${fmt(p.Nf_num,2)} N</strong><br><br><span style="color:var(--muted)">ΣM_Front = 0</span><br><span style="color:${nR}">N_r</span> · ${fmt(p.L_m,3)} = <span style="color:${wC}">${fmt(p.W_num,1)}</span> · ${fmt(p.df_m,3)}<br><strong style="color:${nR}">N_r = ${fmt(p.Nr_num,2)} N</strong>`;
   }
@@ -454,13 +500,39 @@ function buildSteps(p){
       {t:'5. Solve for Rear Normal Force (N_r)', d:'Take moments about the Front axle to eliminate N_f.', m:`ΣM_Front = 0\nN_r × L = W × d_f\nN_r = ${p.sNr}`, s:1},
       {t:'6. Force Per Tire', d:'Assuming lateral symmetry, divide the total axle force by 2 (two tires per axle).', m:`Front Tire = N_f / 2\nRear Tire = N_r / 2`, s:1}
     ];
+  } else if(p.zeroMass || p.zeroG) {
+    const zeroWhat = p.zeroMass ? 'mass m = 0 kg' : 'gravity g = 0 m/s²';
+    steps=[
+      {t:'1. Total Weight (W)', d:`Because ${zeroWhat}, the total weight is zero.`, m:`W = ${fmt(p.massN,1)} × ${fmt(p.gN,2)} = 0 N`},
+      {t:'2. No Forces Required', d:'With W = 0, the equilibrium equations are trivially satisfied. No normal force is needed from any axle.', m:`ΣF_y = N_f + N_r - W\nN_f + N_r = 0 N\n→ N_f = 0 N, N_r = 0 N`},
+      {t:'3. Moment Equations', d:'All moment equations are also zero.', m:`ΣM_Rear = N_f × L - W × d_r = 0 × L - 0 × d_r = 0 ✓\nΣM_Front = N_r × L - W × d_f = 0 ✓`},
+      {t:'4. Result', d:'The system is in equilibrium with no tire loads.', m:`N_f = 0 N/axle → 0 N/tire\nN_r = 0 N/axle → 0 N/tire`}
+    ];
   } else if (p.zeroL) {
     steps=[
       {t:'1. System Load (Weight)', d:'Calculate W using mass and gravity.', m:`W = ${fmt(p.massN,1)} × ${fmt(p.gN,2)} = ${fmt(p.W_num,2)} N`},
-      {t:'2. Point Mass Edge Case', d:'Because the distance from CG to both axles is 0, the car is treated as a point mass.', m:`d_f = 0\nd_r = 0`},
-      {t:'3. Shared Load', d:'Weight is shared exactly equally between the two sets of wheels at the center point.', m:`N_f = W / 2\nN_r = W / 2\nN_f = ${fmt(p.Nf_num,2)} N\nN_r = ${fmt(p.Nr_num,2)} N`},
+      {t:'2. Point Mass Edge Case', d:'Because d_f = 0 and d_r = 0, both axles and G coincide. Standard moment method cannot be used (L = 0 → division by zero). Weight is shared equally by symmetry.', m:`d_f = 0, d_r = 0\nL = d_f + d_r = 0 m\n→ Use symmetry: N_f = N_r = W / 2`},
+      {t:'3. Shared Load', d:'Weight is shared exactly equally between the two axles at the coincident point.', m:`N_f = ${fmt(p.W_num,2)} / 2 = ${fmt(p.Nf_num,2)} N\nN_r = ${fmt(p.W_num,2)} / 2 = ${fmt(p.Nr_num,2)} N`},
       {t:'4. Check Equilibrium', d:'Ensure the sum of vertical forces is zero.', m:`ΣF_y = N_f + N_r - W\n${fmt(p.Nf_num,2)} + ${fmt(p.Nr_num,2)} = ${fmt(p.Nf_num+p.Nr_num,2)} N\n(Matches W = ${fmt(p.W_num,2)} N) ✓`},
       {t:'5. Force Per Tire', d:'Divide the axle totals by 2.', m:`Front: ${fmt(p.Nf_num,2)} / 2 = ${fmt(p.Nf_num/2,2)} N/tire\nRear: ${fmt(p.Nr_num,2)} / 2 = ${fmt(p.Nr_num/2,2)} N/tire`}
+    ];
+  } else if(p.zeroDF) {
+    steps=[
+      {t:'1. System Geometry', d:'d_f = 0 means the Center of Mass G sits directly over the Front Axle. The wheelbase L equals d_r only.', m:`d_f = 0 m\nd_r = ${fmt(p.dr_m,3)} m\nL = 0 + ${fmt(p.dr_m,3)} = ${fmt(p.L_m,3)} m`},
+      {t:'2. System Load (Weight)', d:'Calculate W using mass and gravity.', m:`W = ${fmt(p.massN,1)} × ${fmt(p.gN,2)} = ${fmt(p.W_num,2)} N`},
+      {t:'3. Front Axle Force (N_f)', d:'Taking moments about the Rear Axle (B): W acts at G, which is distance d_r = L from B. N_f acts at A, distance L from B.', m:`ΣM_B = 0\nN_f × L = W × d_r\nN_f = W × L / L = W\nN_f = ${fmt(p.Nf_num,2)} N`},
+      {t:'4. Rear Axle Force (N_r)', d:'Taking moments about Front Axle (A): W acts at G which is 0 m from A, so zero moment. Therefore N_r = 0.', m:`ΣM_A = 0\nN_r × L = W × d_f = W × 0 = 0\nN_r = 0 N`},
+      {t:'5. Check Equilibrium', d:'Verify vertical force balance.', m:`ΣF_y = N_f + N_r - W\n${fmt(p.Nf_num,2)} + 0 = ${fmt(p.W_num,2)} N ✓`},
+      {t:'6. Force Per Tire', d:'Front axle carries all the load; rear tires are fully unloaded.', m:`Front: ${fmt(p.Nf_num,2)} / 2 = ${fmt(p.Nf_num/2,2)} N/tire\nRear: 0 / 2 = 0 N/tire`}
+    ];
+  } else if(p.zeroDR) {
+    steps=[
+      {t:'1. System Geometry', d:'d_r = 0 means the Center of Mass G sits directly over the Rear Axle. The wheelbase L equals d_f only.', m:`d_f = ${fmt(p.df_m,3)} m\nd_r = 0 m\nL = ${fmt(p.df_m,3)} + 0 = ${fmt(p.L_m,3)} m`},
+      {t:'2. System Load (Weight)', d:'Calculate W using mass and gravity.', m:`W = ${fmt(p.massN,1)} × ${fmt(p.gN,2)} = ${fmt(p.W_num,2)} N`},
+      {t:'3. Rear Axle Force (N_r)', d:'Taking moments about the Front Axle (A): W acts at G, which is distance d_f = L from A. N_r acts at B, distance L from A.', m:`ΣM_A = 0\nN_r × L = W × d_f\nN_r = W × L / L = W\nN_r = ${fmt(p.Nr_num,2)} N`},
+      {t:'4. Front Axle Force (N_f)', d:'Taking moments about Rear Axle (B): W acts at G which is 0 m from B, so zero moment. Therefore N_f = 0.', m:`ΣM_B = 0\nN_f × L = W × d_r = W × 0 = 0\nN_f = 0 N`},
+      {t:'5. Check Equilibrium', d:'Verify vertical force balance.', m:`ΣF_y = N_f + N_r - W\n0 + ${fmt(p.Nr_num,2)} = ${fmt(p.W_num,2)} N ✓`},
+      {t:'6. Force Per Tire', d:'Rear axle carries all the load; front tires are fully unloaded.', m:`Front: 0 / 2 = 0 N/tire\nRear: ${fmt(p.Nr_num,2)} / 2 = ${fmt(p.Nr_num/2,2)} N/tire`}
     ];
   } else {
     steps=[
@@ -489,14 +561,14 @@ function easeOutQuart(x) { return 1 - Math.pow(1 - Math.max(0,Math.min(1,x)), 4)
 function easeInOutQuad(x) { x=Math.max(0,Math.min(1,x)); return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; }
 function part(t,a,b){if(t<=a)return 0;if(t>=b)return 1;return easeOutQuart((t-a)/(b-a));}
 
-function arw(x1,y1,x2,y2,col,prog,lbl2,lx,ly,lw=4){
+function arw(x1,y1,x2,y2,col,prog,lbl2,lx,ly,lw=4,side='auto'){
   if(prog<=0) return;
   const p=easeOutQuart(prog);
   const px=x1+(x2-x1)*p,py=y1+(y2-y1)*p;
   ctx.save();ctx.strokeStyle=col;ctx.fillStyle=col;ctx.lineWidth=lw;ctx.lineCap='round';
   ctx.shadowColor=col;ctx.shadowBlur=15;
   ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(px,py);ctx.stroke();
-  
+
   if(prog>.6){
     const k=(prog-.6)/.4,ang=Math.atan2(y2-y1,x2-x1),hs=16;
     ctx.globalAlpha=k; ctx.beginPath();ctx.moveTo(px,py);
@@ -505,8 +577,41 @@ function arw(x1,y1,x2,y2,col,prog,lbl2,lx,ly,lw=4){
     ctx.closePath();ctx.fill();
   }
   if(lbl2&&prog>.8){
-    ctx.globalAlpha=(prog-.8)/.2;ctx.shadowBlur=0;
-    txtBox(lx??x2+10, ly??y2-10, lbl2, col, 'bold 16px Space Grotesk', ctx.globalAlpha);
+    const ka=(prog-.8)/.2;
+    ctx.shadowBlur=0;
+
+    // Anchor label at midpoint of the arrow
+    const mx=(x1+x2)/2, my=(y1+y2)/2;
+
+    ctx.font='bold 13px Space Mono';
+    const tw=ctx.measureText(lbl2).width;
+    const th=16, padX=7, padY=4;
+    const bw=tw+padX*2, bh=th+padY*2;
+
+    // Determine side: 'left' puts box left of arrow, 'right' puts box right
+    const goLeft = side==='left' || (side==='auto' && lx!==undefined && lx < Math.min(x1,x2));
+    const leaderLen = 32;
+    const lblCx = goLeft ? mx - leaderLen - bw/2 : mx + leaderLen + bw/2;
+    const lblCy = my;
+    const leaderEndX = goLeft ? lblCx + bw/2 + 3 : lblCx - bw/2 - 3;
+
+    // Draw dashed leader line from arrow midpoint to label edge
+    ctx.save();
+    ctx.globalAlpha=ka*0.6; ctx.strokeStyle=col; ctx.lineWidth=1.2;
+    ctx.setLineDash([3,3]); ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(mx,my); ctx.lineTo(leaderEndX,lblCy); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // Draw label box
+    const Th=TH();
+    ctx.globalAlpha=ka;
+    ctx.fillStyle=Th.textBg;
+    ctx.beginPath(); ctx.roundRect(lblCx-bw/2, lblCy-bh/2, bw, bh, 6); ctx.fill();
+    ctx.fillStyle=col;
+    ctx.font='bold 13px Space Mono';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(lbl2, lblCx, lblCy);
   }
   ctx.restore();
 }
@@ -553,17 +658,61 @@ function txtBox(x,y,s,col,font,a=1,align='left'){
 function getCoords(p){
   const CW=canvas.width, CH=canvas.height;
   const zeroWB = p.allNum && Math.abs(p.L_m) < 1e-9;
+
+  // --- determine reference wheelbase for scaling ---
+  // If L is zero or near-zero, use a minimum visual span (2.35 m equiv)
   const lR = (!zeroWB && p.allNum && Math.abs(p.L_m) > 1e-6) ? p.L_m : 2.35;
+
   let dfR = p.allNum ? p.df_m : 1.386;
   let drR = p.allNum ? p.dr_m : 0.964;
-  if(dfR < -1.5) dfR = -1.5; if(dfR > lR+1.5) dfR = lR+1.5;
+
+  // Clamp to valid range
+  if(dfR < 0) dfR = 0;
+  if(drR < 0) drR = 0;
+
   const scale = Math.min(CW,CH) * 0.75 / Math.abs(lR || 1);
-  const span = zeroWB ? 0 : lR * scale;
+
+  // Minimum pixel separation so axles / G never fully overlap visually
+  const MIN_SEP = 60; // px
+
+  let Ax, Bx, Gx;
   const By = CH * 0.75;
-  const Ax = CW/2 - span/2;
-  const Bx = CW/2 + span/2;
-  const Gx = zeroWB ? CW/2 : Ax + dfR * scale;
   const Gy = By - 80;
+
+  if(zeroWB) {
+    // Both d_f=0 and d_r=0: point mass — give a symmetric visual spread, G in center
+    const halfSpan = MIN_SEP;
+    Ax = CW/2 - halfSpan;
+    Bx = CW/2 + halfSpan;
+    Gx = CW/2;
+  } else {
+    const rawDf = dfR * scale;
+    const rawDr = drR * scale;
+
+    if(Math.abs(dfR) < 1e-9 && Math.abs(drR) > 1e-9) {
+      // d_f = 0: G is EXACTLY on Front Axle A. Ax = Gx is the physical truth.
+      // Expand Bx rightward so the rear axle is clearly visible.
+      const drPx = Math.max(rawDr, MIN_SEP * 2);
+      Ax = CW/2 - drPx/2;
+      Gx = Ax;          // G coincides with A — correct!
+      Bx = Ax + drPx;
+    } else if(Math.abs(drR) < 1e-9 && Math.abs(dfR) > 1e-9) {
+      // d_r = 0: G is EXACTLY on Rear Axle B. Bx = Gx is the physical truth.
+      // Expand Ax leftward so the front axle is clearly visible.
+      const dfPx = Math.max(rawDf, MIN_SEP * 2);
+      Bx = CW/2 + dfPx/2;
+      Gx = Bx;          // G coincides with B — correct!
+      Ax = Bx - dfPx;
+    } else {
+      // Both non-zero: standard proportional layout
+      const totalPx = Math.max(rawDf + rawDr, MIN_SEP);
+      const ratio = rawDf / (rawDf + rawDr);
+      Ax = CW/2 - totalPx/2;
+      Bx = CW/2 + totalPx/2;
+      Gx = Ax + totalPx * ratio;
+    }
+  }
+
   return {Ax, By, Bx, Gx, Gy, scale, CW, CH, zeroWB};
 }
 
@@ -584,11 +733,15 @@ function drawFBD(p,t){
     ctx.restore();
   });
 
+  // Car body: ensure minimum visual width even when d_f=0 or d_r=0
+  const carMinHalfW = 40;
+  const carLeft  = Math.min(C.Ax, C.Gx) - carMinHalfW;
+  const carRight = Math.max(C.Bx, C.Gx) + carMinHalfW;
   ctx.save();ctx.globalAlpha=easeInOutQuad(tCar);
   ctx.strokeStyle=Th.carLine;ctx.lineWidth=10;ctx.lineCap='round';ctx.shadowColor=Th.carLine;ctx.shadowBlur=15;
   ctx.beginPath();ctx.moveTo(C.Ax,C.By);ctx.lineTo(C.Ax, C.Gy+25);ctx.lineTo(C.Bx, C.Gy+25);ctx.lineTo(C.Bx, C.By);ctx.stroke();
   ctx.fillStyle=Th.carBody; ctx.globalAlpha=easeInOutQuad(tCar)*0.6; ctx.shadowBlur=0;
-  ctx.beginPath();ctx.roundRect(C.Ax-40, C.Gy-25, (C.Bx-C.Ax)+80, 65, 20); ctx.fill();
+  ctx.beginPath();ctx.roundRect(carLeft, C.Gy-25, carRight - carLeft, 65, 20); ctx.fill();
   ctx.restore();
 
   dot(C.Ax,C.By,Th.Nf,8,'A',tPts, C.Ax-20, C.By-35);
@@ -596,24 +749,109 @@ function drawFBD(p,t){
   dot(C.Gx,C.Gy,Th.weight,8,'G',tPts, C.Gx+15, C.Gy-15);
 
   if(!p.zeroL) {
-    dash(C.Ax,C.By+50, C.Gx,C.By+50, Th.dim, tDims, [5,4], 2.5);
-    dash(C.Gx,C.By+50, C.Bx,C.By+50, Th.dim, tDims, [5,4], 2.5);
+    const dimLineY = C.By + 78;
+    if(tDims>0.1){
+      const k=Math.min(1,(tDims-.1)/.5);
+      ctx.save();ctx.globalAlpha=k*0.4;ctx.strokeStyle=Th.dim;ctx.lineWidth=1;ctx.setLineDash([3,4]);
+      [C.Ax,C.Gx,C.Bx].forEach(x=>{
+        ctx.beginPath();ctx.moveTo(x,C.By+33);ctx.lineTo(x,dimLineY-4);ctx.stroke();
+      });
+      ctx.setLineDash([]);ctx.restore();
+    }
+
+    // Only draw d_f segment line if d_f > 0 (G not on front axle)
+    if(!p.zeroDF) dash(C.Ax, dimLineY, C.Gx, dimLineY, Th.dim, tDims, [5,4], 2.5);
+    // Only draw d_r segment line if d_r > 0 (G not on rear axle)
+    if(!p.zeroDR) dash(C.Gx, dimLineY, C.Bx, dimLineY, Th.dim, tDims, [5,4], 2.5);
+    // If one side is zero, draw a small indicator tick at G
+    if((p.zeroDF || p.zeroDR) && tDims>0.4){
+      const k=(tDims-.4)/.6;
+      ctx.save();ctx.globalAlpha=k;ctx.strokeStyle=Th.dim;ctx.lineWidth=2;
+      ctx.beginPath();ctx.moveTo(C.Gx,dimLineY-8);ctx.lineTo(C.Gx,dimLineY+8);ctx.stroke();
+      ctx.restore();
+    }
+
+    if(tDims>0.4){
+      const kt=(tDims-.4)/.6;
+      ctx.save();ctx.globalAlpha=kt;ctx.strokeStyle=Th.dim;ctx.lineWidth=1.5;
+      [C.Ax,C.Gx,C.Bx].forEach(x=>{
+        ctx.beginPath();ctx.moveTo(x,dimLineY-6);ctx.lineTo(x,dimLineY+6);ctx.stroke();
+      });
+      ctx.restore();
+    }
+
     if(tDims>0.6){
        const k=(tDims-.6)/.4;
-       txtBox((C.Ax+C.Gx)/2, C.By+50, `d_f = ${p.allNum?fmt(p.df_m,3)+'m':p.sDF}`, Th.dim, 'bold 14px Space Mono', k, 'center');
-       txtBox((C.Gx+C.Bx)/2, C.By+50, `d_r = ${p.allNum?fmt(p.dr_m,3)+'m':p.sDR}`, Th.dim, 'bold 14px Space Mono', k, 'center');
+       if(!p.zeroDF) txtBox((C.Ax+C.Gx)/2, dimLineY+20, `d_f = ${p.allNum?fmt(p.df_m,3)+'m':p.sDF}`, Th.dim, 'bold 14px Space Mono', k, 'center');
+       else txtBox(C.Ax+10, dimLineY+20, `d_f = 0 m (G at Front Axle)`, Th.dim, 'bold 13px Space Mono', k, 'left');
+       if(!p.zeroDR) txtBox((C.Gx+C.Bx)/2, dimLineY+20, `d_r = ${p.allNum?fmt(p.dr_m,3)+'m':p.sDR}`, Th.dim, 'bold 14px Space Mono', k, 'center');
+       else txtBox(C.Bx-10, dimLineY+20, `d_r = 0 m (G at Rear Axle)`, Th.dim, 'bold 13px Space Mono', k, 'right');
     }
   }
 
-  const fw=140;
-  if(p.zeroL) {
-    arw(C.Ax-10,C.By, C.Ax-10, C.By-fw, Th.Nf, tForces, 'N_f', C.Ax-50, C.By-fw+15, 4);
-    arw(C.Bx+10,C.By, C.Bx+10, C.By-fw, Th.Nr, tForces, 'N_r', C.Bx+20, C.By-fw+15, 4);
+  // Arrow lengths scale with actual force magnitudes (baseline 140px = W total)
+  const W_ref = p.allNum ? Math.max(p.W_num, 1) : 1;
+  const fwW   = 140; // weight arrow always 140px
+  const fwNf  = p.allNum ? Math.max(8, fwW * p.Nf_num / W_ref) : 140;
+  const fwNr  = p.allNum ? Math.max(8, fwW * p.Nr_num / W_ref) : 140;
+
+  // Zero-weight case: skip force arrows entirely, show notice
+  const zeroForce = p.allNum && (p.zeroMass || p.zeroG);
+  if(zeroForce){
+    if(tForces>0.7){
+      const k=(tForces-.7)/.3;
+      txtBox(C.CW/2, C.Gy-40, 'W = 0 N → No normal forces needed', Th.muted, 'bold 15px Space Grotesk', k, 'center');
+    }
+    arw(C.Gx,C.Gy, C.Gx, C.Gy+30, Th.weight, tForces, `W = 0 N`, null, null, 3, 'right');
+  } else if(p.zeroL) {
+    // point mass: both axles at same point, split W equally
+    arw(C.Ax-10,C.By, C.Ax-10, C.By-fwNf, Th.Nf, tForces,
+        `N_f = ${p.allNum?fmt(p.Nf_num,1)+' N':'N_f'}`, null, null, 4, 'left');
+    arw(C.Bx+10,C.By, C.Bx+10, C.By-fwNr, Th.Nr, tForces,
+        `N_r = ${p.allNum?fmt(p.Nr_num,1)+' N':'N_r'}`, null, null, 4, 'right');
+    // W arrow centred between them
+    arw(C.Gx,C.Gy, C.Gx, C.Gy+fwW, Th.weight, tForces,
+        `W = ${p.allNum?fmt(p.W_num,1)+' N':'W'}`, null, null, 4, 'right');
+    return; // skip the common W arrow below
+  } else if(p.zeroDF) {
+    // G is ON Front Axle A (Gx === Ax).
+    // W acts downward at Ax; N_f acts upward at Ax — offset left/right so both are visible.
+    // N_r = 0 at rear axle B.
+    // W arrow: slightly left of Ax so it doesn't hide behind N_f
+    arw(C.Ax-14, C.Gy, C.Ax-14, C.Gy+fwW, Th.weight, tForces,
+        `W = ${p.allNum?fmt(p.W_num,1)+' N':'W'}`, null, null, 4, 'left');
+    // N_f arrow: slightly right of Ax, full height (N_f = W)
+    arw(C.Ax+14, C.By, C.Ax+14, C.By-fwNf, Th.Nf, tForces,
+        `N_f = ${p.allNum?fmt(p.Nf_num,1)+' N (= W)':'N_f'}`, null, null, 4, 'right');
+    // N_r = 0: just a text label at rear axle
+    if(tForces>0.6){
+      const k=(tForces-.6)/.4;
+      txtBox(C.Bx+15, C.By-22, 'N_r = 0 N', Th.Nr, 'bold 13px Space Mono', k);
+      txtBox(C.Bx+15, C.By-6, '(no moment arm)', Th.muted, '11px Space Mono', k);
+    }
+    return;
+  } else if(p.zeroDR) {
+    // G is ON Rear Axle B (Gx === Bx).
+    // W acts downward at Bx; N_r acts upward at Bx — offset to keep both visible.
+    // N_f = 0 at front axle A.
+    arw(C.Bx+14, C.Gy, C.Bx+14, C.Gy+fwW, Th.weight, tForces,
+        `W = ${p.allNum?fmt(p.W_num,1)+' N':'W'}`, null, null, 4, 'right');
+    arw(C.Bx-14, C.By, C.Bx-14, C.By-fwNr, Th.Nr, tForces,
+        `N_r = ${p.allNum?fmt(p.Nr_num,1)+' N (= W)':'N_r'}`, null, null, 4, 'left');
+    if(tForces>0.6){
+      const k=(tForces-.6)/.4;
+      txtBox(C.Ax-65, C.By-22, 'N_f = 0 N', Th.Nf, 'bold 13px Space Mono', k);
+      txtBox(C.Ax-65, C.By-6, '(no moment arm)', Th.muted, '11px Space Mono', k);
+    }
+    return;
   } else {
-    arw(C.Ax,C.By, C.Ax, C.By-fw, Th.Nf, tForces, 'N_f', C.Ax-40, C.By-fw+15, 4);
-    arw(C.Bx,C.By, C.Bx, C.By-fw, Th.Nr, tForces, 'N_r', C.Bx+20, C.By-fw+15, 4);
+    arw(C.Ax,C.By, C.Ax, C.By-fwNf, Th.Nf, tForces,
+        `N_f = ${p.allNum?fmt(p.Nf_num,1)+' N':'N_f'}`, null, null, 4, 'left');
+    arw(C.Bx,C.By, C.Bx, C.By-fwNr, Th.Nr, tForces,
+        `N_r = ${p.allNum?fmt(p.Nr_num,1)+' N':'N_r'}`, null, null, 4, 'right');
   }
-  arw(C.Gx,C.Gy, C.Gx, C.Gy+fw, Th.weight, tForces, 'W', C.Gx+15, C.Gy+fw-10, 4);
+  arw(C.Gx,C.Gy, C.Gx, C.Gy+fwW, Th.weight, tForces,
+      `W = ${p.allNum?fmt(p.W_num,1)+' N':'W'}`, null, null, 4, 'right');
 }
 
 function drawGeom(p,t){
@@ -628,18 +866,28 @@ function drawGeom(p,t){
   dash(C.Gx, C.Gy, C.Gx, C.By, Th.muted, t2, [6,5], 1.5);
 
   if(!p.zeroL) {
-    dash(C.Ax,C.By+40, C.Gx,C.By+40, Th.dim, t2, [6,5], 2.5);
-    dash(C.Gx,C.By+40, C.Bx,C.By+40, Th.dim, t2, [6,5], 2.5);
+    // Only draw d_f segment if non-zero
+    if(!p.zeroDF) dash(C.Ax,C.By+40, C.Gx,C.By+40, Th.dim, t2, [6,5], 2.5);
+    // Only draw d_r segment if non-zero
+    if(!p.zeroDR) dash(C.Gx,C.By+40, C.Bx,C.By+40, Th.dim, t2, [6,5], 2.5);
     dash(C.Ax,C.By+90, C.Bx,C.By+90, Th.carLine, t3, [6,5], 2.5);
 
     if(t3>0.5){
       const k=(t3-.5)/.5;
-      txtBox((C.Ax+C.Gx)/2, C.By+40, `d_f = ${p.allNum?fmt(p.df_m,3)+'m':p.sDF}`, Th.dim, 'bold 15px Space Mono', k, 'center');
-      txtBox((C.Gx+C.Bx)/2, C.By+40, `d_r = ${p.allNum?fmt(p.dr_m,3)+'m':p.sDR}`, Th.dim, 'bold 15px Space Mono', k, 'center');
+      if(!p.zeroDF)
+        txtBox((C.Ax+C.Gx)/2, C.By+40, `d_f = ${p.allNum?fmt(p.df_m,3)+'m':p.sDF}`, Th.dim, 'bold 15px Space Mono', k, 'center');
+      else
+        txtBox(C.Ax+12, C.By+40, `d_f = 0 m`, Th.dim, 'bold 14px Space Mono', k, 'left');
+
+      if(!p.zeroDR)
+        txtBox((C.Gx+C.Bx)/2, C.By+40, `d_r = ${p.allNum?fmt(p.dr_m,3)+'m':p.sDR}`, Th.dim, 'bold 15px Space Mono', k, 'center');
+      else
+        txtBox(C.Bx-12, C.By+40, `d_r = 0 m`, Th.dim, 'bold 14px Space Mono', k, 'right');
+
       txtBox((C.Ax+C.Bx)/2, C.By+90, `Total Wheelbase L = ${p.allNum?fmt(p.L_m,3)+'m':p.sL}`, Th.carLine, 'bold 16px Space Mono', k, 'center');
     }
   } else {
-    if(t3>0.5) txtBox(C.CW/2, C.By+60, `Wheelbase L = 0m (Point Mass)`, Th.carLine, 'bold 16px Space Mono', (t3-.5)/.5, 'center');
+    if(t3>0.5) txtBox(C.CW/2, C.By+60, `Wheelbase L = 0 m (Point Mass — G, A, B coincide)`, Th.carLine, 'bold 15px Space Mono', (t3-.5)/.5, 'center');
   }
 }
 
@@ -651,34 +899,77 @@ function drawMoments(p,t){
   dot(C.Bx,C.By,Th.pt,6,'B',t0,C.Bx+15,C.By+25);
   dot(C.Gx,C.Gy,Th.weight,6,'G',t0,C.Gx+15,C.Gy-10);
 
-  arw(C.Gx,C.Gy, C.Gx, C.Gy+120, Th.weight, t0, 'W', C.Gx+15, C.Gy+110);
+  // Zero-weight: show W=0 stub and explanation, no reaction forces
+  const zeroForce = p.allNum && (p.zeroMass || p.zeroG);
+  if(zeroForce){
+    arw(C.Gx,C.Gy, C.Gx, C.Gy+30, Th.weight, t0, 'W = 0 N', null, null, 4, 'right');
+    if(t1>0.6){
+      const k=(t1-.6)/.4;
+      txtBox(C.CW/2, C.By-60, `W = 0 N → ΣM = 0 trivially. N_f = N_r = 0 N.`, Th.muted, 'bold 14px Space Grotesk', k, 'center');
+    }
+    return;
+  }
+
+  // For zeroDF: Gx===Ax, so offset W arrow slightly right so it's distinct from N_f
+  // For zeroDR: Gx===Bx, so offset W arrow slightly left
+  const wArrowX = p.zeroDF ? C.Gx + 16 : (p.zeroDR ? C.Gx - 16 : C.Gx);
+  arw(wArrowX, C.Gy, wArrowX, C.Gy+120, Th.weight, t0, 'W', null, null, 4, 'right');
   
   if(!p.zeroL) {
     if(t1>0){
-      dash(C.Gx, C.By, C.Bx, C.By, Th.weight, t1, [5,4], 3);
-      arw(C.Ax,C.By, C.Ax, C.By-120, Th.Nf, t1, 'N_f', C.Ax-40, C.By-110);
-      dash(C.Ax, C.By-20, C.Bx, C.By-20, Th.Nf, t1, [5,4], 3);
-      if(t1>0.6) {
-         const k = (t1-.6)/.4;
-         txtBox((C.Gx+C.Bx)/2, C.By, `d_r`, Th.weight, 'bold 14px Space Mono', k, 'center');
-         txtBox((C.Ax+C.Bx)/2, C.By-20, `L (Force Arm)`, Th.Nf, 'bold 14px Space Mono', k, 'center');
+      if(p.zeroDF) {
+        // G is AT front axle A (Gx=Ax). d_r IS the moment arm for N_f about B.
+        // Show the d_r arm from Gx(=Ax) to Bx, and N_f rising at Ax.
+        dash(C.Gx, C.By, C.Bx, C.By, Th.weight, t1, [5,4], 3);
+        arw(C.Ax-14, C.By, C.Ax-14, C.By-120, Th.Nf, t1, 'N_f = W', null, null, 4, 'left');
+        dash(C.Ax, C.By-24, C.Bx, C.By-24, Th.Nf, t1, [5,4], 3);
+        if(t1>0.6){
+          const k=(t1-.6)/.4;
+          txtBox((C.Gx+C.Bx)/2, C.By+12, `d_r (= L)`, Th.weight, 'bold 13px Space Mono', k, 'center');
+          txtBox((C.Ax+C.Bx)/2, C.By-34, `L (Force Arm for N_f)`, Th.Nf, 'bold 13px Space Mono', k, 'center');
+          txtBox(C.Bx+14, C.By-22, 'N_r = 0', Th.Nr, 'bold 13px Space Mono', k);
+          txtBox(C.Bx+14, C.By-7, 'd_f = 0 → zero arm', Th.muted, '11px Space Mono', k);
+        }
+      } else if(p.zeroDR) {
+        // G is AT rear axle B (Gx=Bx). d_f IS the moment arm for N_r about A.
+        // Show the d_f arm from Ax to Gx(=Bx), and N_r rising at Bx.
+        dash(C.Ax, C.By, C.Gx, C.By, Th.weight, t1, [5,4], 3);
+        arw(C.Bx+14, C.By, C.Bx+14, C.By-120, Th.Nr, t1, 'N_r = W', null, null, 4, 'right');
+        dash(C.Ax, C.By-24, C.Bx, C.By-24, Th.Nr, t1, [5,4], 3);
+        if(t1>0.6){
+          const k=(t1-.6)/.4;
+          txtBox((C.Ax+C.Gx)/2, C.By+12, `d_f (= L)`, Th.weight, 'bold 13px Space Mono', k, 'center');
+          txtBox((C.Ax+C.Bx)/2, C.By-34, `L (Force Arm for N_r)`, Th.Nr, 'bold 13px Space Mono', k, 'center');
+          txtBox(C.Ax-14, C.By-22, 'N_f = 0', Th.Nf, 'bold 13px Space Mono', k, 'right');
+          txtBox(C.Ax-14, C.By-7, 'd_r = 0 → zero arm', Th.muted, '11px Space Mono', k, 'right');
+        }
+      } else {
+        // Normal case
+        dash(C.Gx, C.By, C.Bx, C.By, Th.weight, t1, [5,4], 3);
+        arw(C.Ax,C.By, C.Ax, C.By-120, Th.Nf, t1, 'N_f', null, null, 4, 'left');
+        dash(C.Ax, C.By-20, C.Bx, C.By-20, Th.Nf, t1, [5,4], 3);
+        if(t1>0.6) {
+          const k = (t1-.6)/.4;
+          txtBox((C.Gx+C.Bx)/2, C.By, `d_r`, Th.weight, 'bold 14px Space Mono', k, 'center');
+          txtBox((C.Ax+C.Bx)/2, C.By-20, `L (Force Arm)`, Th.Nf, 'bold 14px Space Mono', k, 'center');
+        }
       }
     }
 
-    if(t2>0){
+    if(t2>0 && !p.zeroDF && !p.zeroDR){
       dash(C.Ax, C.By+20, C.Gx, C.By+20, Th.weight, t2, [5,4], 3);
-      arw(C.Bx,C.By, C.Bx, C.By-120, Th.Nr, t2, 'N_r', C.Bx+15, C.By-110);
+      arw(C.Bx,C.By, C.Bx, C.By-120, Th.Nr, t2, 'N_r', null, null, 4, 'right');
       dash(C.Ax, C.By-50, C.Bx, C.By-50, Th.Nr, t2, [5,4], 3);
       if(t2>0.6) {
-         const k = (t2-.6)/.4;
-         txtBox((C.Ax+C.Gx)/2, C.By+20, `d_f`, Th.weight, 'bold 14px Space Mono', k, 'center');
-         txtBox((C.Ax+C.Bx)/2, C.By-50, `L (Force Arm)`, Th.Nr, 'bold 14px Space Mono', k, 'center');
+        const k = (t2-.6)/.4;
+        txtBox((C.Ax+C.Gx)/2, C.By+20, `d_f`, Th.weight, 'bold 14px Space Mono', k, 'center');
+        txtBox((C.Ax+C.Bx)/2, C.By-50, `L (Force Arm)`, Th.Nr, 'bold 14px Space Mono', k, 'center');
       }
     }
   } else {
     if(t1>0){
-      arw(C.Ax-10,C.By, C.Ax-10, C.By-120, Th.Nf, t1, 'N_f', C.Ax-50, C.By-110);
-      arw(C.Bx+10,C.By, C.Bx+10, C.By-120, Th.Nr, t1, 'N_r', C.Bx+20, C.By-110);
+      arw(C.Ax-10,C.By, C.Ax-10, C.By-120, Th.Nf, t1, 'N_f', null, null, 4, 'left');
+      arw(C.Bx+10,C.By, C.Bx+10, C.By-120, Th.Nr, t1, 'N_r', null, null, 4, 'right');
       if(t1>0.6) txtBox(C.CW/2, C.By-50, `Weight balances centrally (L=0)`, Th.Nf, 'bold 14px Space Mono', (t1-.6)/.4, 'center');
     }
   }
